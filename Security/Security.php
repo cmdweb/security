@@ -43,7 +43,7 @@ class Security {
 
         $prop = $annotation->getAnnotationsByMethod(Request::getAction());
 
-        if(!isset($prop["AllowAcess"])) {
+        if(!isset($prop["AllowAccess"])) {
 
             $login = Session::get("login");
             $pass = Session::get("pass");
