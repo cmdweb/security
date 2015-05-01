@@ -1,0 +1,23 @@
+{
+  "name": "alcatraz/security",
+  "description": "Security Alcatraz Framework.",
+  "authors": [
+    {
+      "name": "Gabriel Malaquias",
+      "email": "g@gmalaquias.com"
+    }
+  ],
+  "keywords": ["alcatraz", "security"],
+  "license": "MIT",
+  "type": "library",
+   "autoload": {
+        "psr-0": { "Alcatraz\\Security\\": "" }
+    },
+    "require" : {
+      "alcatraz/owl" : "1.0.0",
+      "alcatraz/session" : "1.0.0",
+      "alcatraz/annotation": "1.0.0"
+    },
+    "target-dir": "Alcatraz"
+
+}
