@@ -9,17 +9,10 @@
 
 namespace Alcatraz\Security;
 
-/**
-    CREATE TABLE users (
-        id int primary key auto_increment,
-        login varchar(100) unique not null,
-        pass varchar(100) not null,
-        lastAccess timestamp,
-        activated tinyint(1) not null default 0
-    );
- */
-
+use Alcatraz\Annotation\Annotation;
 use Alcatraz\Components\Session\Session;
+use Alcatraz\Kernel\Request;
+use Alcatraz\Kernel\Router;
 use Alcatraz\Owl\Owl;
 use Entities\Users;
 
@@ -46,10 +39,18 @@ class Security {
 
         Session::start();
 
-        $login = Session::get("login");
-        $pass  = Session::get("pass");
+        $annotation = new Annotation(new Router::$controller);
 
-        return self::verifyLogin($login, $pass, false);
+        $prop = $annotation->getAnnotationsByMethod(Request::getAction());
+
+        if(!isset($prop["AllowAcess"])) {
+
+            $login = Session::get("login");
+            $pass = Session::get("pass");
+
+            return self::verifyLogin($login, $pass, false);
+        }
+        return true;
     }
 
     public static function getUser($obj = true){
@@ -92,6 +93,7 @@ class Security {
     }
 
     private static function encrypt($pass){
+        $pass = md5($pass);
         return $pass;
     }
 }
