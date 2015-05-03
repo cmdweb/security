@@ -39,7 +39,7 @@ class Security {
 
         Session::start();
 
-        $annotation = new Annotation(new Router::$controller);
+        $annotation = new Annotation(Router::$controller);
 
         $prop = $annotation->getAnnotationsByMethod(Request::getAction());
 
