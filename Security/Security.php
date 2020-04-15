@@ -9,22 +9,32 @@
 
 namespace Alcatraz\Security;
 
+/**
+ * Classe alterada para uso no alcatraz-boilerplate
+ */
+
 use Alcatraz\Annotation\Annotation;
 use Alcatraz\Components\Session\Session;
 use Alcatraz\Kernel\Request;
 use Alcatraz\Kernel\Router;
 use Alcatraz\Owl\Owl;
+use BLL\PersonBLL;
+use BLL\Users\UserBLL;
 use Entities\Users;
 
 class Security {
 
     private static $user;
+    private static $personId;
 
     public static function login($login, $pass){
 
         if(self::verifyLogin($login,$pass, true)){
             Session::set("login", $login);
-            Session::set("pass", self::encrypt($pass));
+            Session::set("password", self::encrypt($pass));
+            UserBLL::UpdateLastAccessByLogin($login);
+            UserBLL::UpdateLastIpByLogin($login);
+
             return true;
         }
 
@@ -35,24 +45,51 @@ class Security {
         Session::destroy();
     }
 
-    public static function verifySession(){
+    /**
+     * @param bool $ignoreAnnotations = Ignora informações de annotations do controller para verificar session
+     * @return bool
+     * @throws \Alcatraz\Annotation\AnnotationException
+     */
+    public static function verifySession($ignoreAnnotations = false){
 
         Session::start();
-
         $annotation = new Annotation(Router::$controller);
-
         $prop = $annotation->getAnnotationsByMethod(Request::getAction());
 
-        if(!isset($prop["AllowAccess"])) {
+        $login = Session::get("login");
+        $pass = Session::get("password");
+        $profile = Session::get("profile");
 
-            $login = Session::get("login");
-            $pass = Session::get("pass");
+        if($ignoreAnnotations)
+            return self::verifyLogin($login,$pass);
 
-            return self::verifyLogin($login, $pass, false);
+        if(isset($prop["AllowUsers"])){
+            return self::verifyLogin($login,$pass) && $profile != null;
+        }elseif(!isset($prop["AllowAccess"])){
+            return self::verifyLogin($login,$pass) && self::verifyAccess($profile);
         }
+
         return true;
     }
 
+    /**
+     * @return int
+     */
+    public static function getProfileActive(){
+        return Session::get("profile");
+    }
+
+    /**
+     * @return int
+     */
+    public static function getEmpresaActive(){
+        return Session::get("empresaId");
+    }
+
+    /**
+     * @param bool $obj
+     * @return Entities\PersonUser
+     */
     public static function getUser($obj = true){
         if(self::verifySession())
             return $obj ? self::$user : self::$user->login;
@@ -60,16 +97,52 @@ class Security {
         return null;
     }
 
-    public static function insertUser($login, $pass){
-        $user = new Users();
-
-        $user->login = $login;
-        $user->pass = $pass;
-        $user->activated = 1;
+    public static function getProfiles($login){
 
         $owl = new Owl();
-        $owl->Insert($user);
-        $owl->Save();
+
+        $profiles = $owl->Get("PersonUser")
+            ->Join("PersonUserProfile", "pu.id", "pup.personUserId")
+            ->Join("Profile", "p.id", "pup.profileId")
+            ->LeftJoin("Person","person.id", "pup.empresaId")
+            ->Where("login = '" . $login . "' and pup.disabled = 0")
+            ->Where("person.status = 1 OR person.status is null")
+            ->Select("p.*, person.id as empresaId, person.name, pup.id as personuserprofileid")
+            ->ToList();
+
+        return $profiles;
+    }
+
+    public static function verifyLoginAndProfile($login, $profileId){
+        $owl = new Owl();
+
+        $profiles = $owl->Get("PersonUser")
+            ->Join("PersonUserProfile", "pu.id", "pup.personUserId")
+            ->Join("Profile", "p.id", "pup.profileId")
+            ->LeftJoin("Person","person.id", "pup.empresaId")
+            ->Where("login = '" . $login . "'  and disabled = 0 AND pup.id = ". $profileId)
+            ->Select("p.*, person.id as empresaId, person.name, pup.id as personuserprofileid")
+            ->FirstOrDefault();
+
+        return $profiles;
+    }
+
+    public  static function setProfile ($profileId, $empresaId){
+        Session::start();
+        Session::set("profile", $profileId);
+        Session::set("empresaId", $empresaId);
+    }
+
+    public static function getEmpresaLogada(){
+        $empresa = self::getEmpresaActive();
+        if($empresa != null)
+            return PersonBLL::getPersonById($empresa);
+
+        return null;
+    }
+
+    public static function getPersonId(){
+        return self::$personId;
     }
 
     private static function verifyLogin($login, $pass, $encrypt = false){
@@ -80,10 +153,16 @@ class Security {
             $pass = self::encrypt($pass);
 
         $owl = new Owl();
-        $user = $owl->Get("Users")->Where("login = '" . $login . "' AND pass = '" . $pass . "' AND activated = '1'")->FirstOrDefault();
+        $user = $owl->Get("PersonUser", null, "Person")->Where("login = ? AND password =  ?", array($login, $pass))->FirstOrDefault();
 
         if($user != null) {
+            self::$personId = $user->_Person->id;
             self::$user = $user;
+            Session::set("creationDate",$user->creationDate);
+
+            //update last activity
+            UserBLL::UpdateLastActivityByLogin($login);
+
             return true;
         }
 
@@ -92,8 +171,27 @@ class Security {
 
     }
 
-    private static function encrypt($pass){
-        $pass = md5($pass);
+    private static function verifyAccess($profile){
+        $router["area"] = Request::getArea();
+        $router["controller"] = Request::getController();
+        $router["action"] = Request::getAction();
+
+        $profileId = self::getProfileActive();
+
+        $owl = new Owl();
+        $access = $owl->Get("ProfileMenu")->Join("Menu","p.menuid", "m.id")
+            ->Where("p.profileId = $profileId")
+            ->Where("(m.controller = '".$router["controller"]."' AND m.action = '".$router["action"]."')")
+            ->WhereOR("m.area = '".$router["area"]."' AND m.controller = '".$router["controller"]."' AND m.action = '".$router["action"]."'")
+            ->Select("m.id")->FirstOrDefault();
+
+        return $access != null;
+    }
+
+    public static function encrypt($pass){
+        $pass = md5(md5(md5(md5(md5(md5($pass)."bfcc0a49a2b44212bee50974c79782da")))));
         return $pass;
     }
+
+
 }
